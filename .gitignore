@@ -1,0 +1,51 @@
+# Docker
+*.tar
+*.tar.gz
+docker-compose.override.yml
+.docker/
+
+# Container images
+*.img
+*.qcow2
+*.vmdk
+*.vdi
+*.ova
+*.ovf
+
+# Build artifacts
+build/
+dist/
+out/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Cache
+.cache/
+__pycache__/
+*.pyc
+node_modules/
