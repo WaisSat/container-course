@@ -1,12 +1,12 @@
-# Installing Docker CE on Rocky Linux 8
+# Installing Docker CE on Rocky Linux 9.6
 
-This guide walks you through installing Docker Community Edition on a Rocky Linux 8 VM. If you're using GitHub Codespaces, skip this—Docker is already installed.
+This guide walks you through installing Docker Community Edition on a Rocky Linux 9.6 VM. If you're using GitHub Codespaces, skip this—Docker is already installed.
 
 ---
 
 ## Prerequisites
 
-- Rocky Linux 8 VM with sudo access
+- Rocky Linux 9.6 VM with sudo access
 - Internet connectivity
 - At least 2GB RAM, 10GB disk space
 
@@ -29,7 +29,7 @@ sudo dnf remove -y docker \
     runc
 ```
 
-> **Note:** Rocky Linux 8 comes with Podman by default. We're removing it to avoid confusion, though Docker and Podman can coexist.
+> **Note:** Rocky Linux 9.6 comes with Podman by default. We're removing it to avoid confusion, though Docker and Podman can coexist.
 
 ---
 
@@ -48,10 +48,10 @@ sudo dnf install -y dnf-plugins-core
 Add the official Docker CE repository:
 
 ```bash
-sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
 ```
 
-> **Why CentOS repo?** Rocky Linux is binary-compatible with RHEL/CentOS, so the CentOS Docker packages work perfectly.
+> **Why RHEL repo?** Rocky Linux 9 is binary-compatible with RHEL 9, so the RHEL Docker packages work perfectly. For Rocky 9.x, we use the RHEL repository instead of CentOS.
 
 ---
 
@@ -60,7 +60,7 @@ sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/dock
 Install Docker Engine, CLI, containerd, and Compose plugin:
 
 ```bash
-sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
 When prompted about GPG keys, verify the fingerprint matches:
@@ -179,10 +179,12 @@ If you see SELinux denials, you have options:
 sudo setenforce 0
 ```
 
-**Option 2:** Install Docker SELinux policy:
+**Option 2:** Install Docker SELinux policy (usually pre-installed on Rocky 9.6):
 ```bash
 sudo dnf install -y container-selinux
 ```
+
+**Note:** Rocky Linux 9.6 typically has better SELinux integration with containers out of the box.
 
 ---
 
@@ -236,7 +238,7 @@ sudo systemctl restart docker
 
 Before proceeding to the labs, verify:
 
-- [ ] `docker --version` shows Docker version 24.x or newer
+- [ ] `docker --version` shows Docker version 24.x or newer (25.x recommended for Rocky 9.6)
 - [ ] `docker compose version` shows Compose v2.x
 - [ ] `docker run hello-world` works without sudo
 - [ ] `docker ps` returns an empty list (no errors)
