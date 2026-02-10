@@ -5,7 +5,7 @@ echo "Setting up Container Fundamentals environment..."
 
 echo "Installing additional tools (vim, neovim, ncat, age)..."
 sudo apt-get update -qq
-sudo apt-get install -y vim neovim ncat age
+sudo apt-get install -y vim neovim ncat age unzip
 
 echo "Verifying Docker..."
 docker_ready=0
