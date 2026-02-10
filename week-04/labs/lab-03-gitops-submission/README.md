@@ -1,31 +1,53 @@
-# Lab 3: GitOps Submission — Ship to Production
+# Lab 3: Deploy to Dev and Prod
 
-**Time:** 25 minutes  
-**Objective:** Push your updated app to GHCR, write Kubernetes manifests, and submit a pull request that deploys your app to the shared cluster via ArgoCD
+**Time:** 30 minutes
+**Objective:** Deploy your app to two namespaces — dev and prod — on the shared cluster by submitting Kubernetes manifests to the infrastructure repo via GitOps
 
 ---
 
 ## How This Works
 
-For the rest of this course, this is the workflow. Every week you'll add features to your app and deploy them through this pipeline:
+Instead of deploying to a single shared namespace, you now own two isolated namespaces on the real cluster. You fork the infrastructure repo, scaffold manifests, and open a PR. After merge, ArgoCD deploys your app to both environments automatically.
 
 ```
   You (local)                    GitHub                     Shared Cluster
   ──────────                    ──────                     ──────────────
-                                                           
+
   1. Build image ──────────►  2. Push to GHCR
                                      │
-  3. Write manifests ─────►  4. Open PR to
-                               container-gitops
+  3. Fork talos-gitops         4. Scaffold manifests
+     Create branch                  for dev/ and prod/
+          │                          │
+          └──────────────────► 5. Open PR to
+                                  talos-gitops
                                      │
-                              5. PR merged ──────────►  6. ArgoCD detects
-                                                           change and syncs
+                              6. PR merged ──────────►  7. ArgoCD syncs
                                                               │
-                                                        7. Your app is live
-                                                           with a public URL
+                                                     8. Two namespaces created:
+                                                        student-<you>-dev
+                                                        student-<you>-prod
 ```
 
-No one runs `kubectl apply` on the shared cluster. The Git repo **is** the source of truth. If it's not in the repo, it doesn't exist in production.
+Your directory in `talos-gitops` looks like this:
+
+```
+student-infra/students/<username>/
+  kustomization.yaml         # points to dev/ and prod/
+  dev/
+    kustomization.yaml       # sets namespace: student-<username>-dev
+    namespace.yaml
+    deployment.yaml
+    service.yaml
+  prod/
+    kustomization.yaml       # sets namespace: student-<username>-prod
+    namespace.yaml
+    deployment.yaml
+    service.yaml
+```
+
+Each environment's `kustomization.yaml` uses the Kustomize namespace transformer — the individual manifests don't hardcode a namespace. Dev and prod are identical copies for now (we'll learn how to eliminate that duplication with Kustomize overlays in a later week).
+
+> **Reference:** The instructor's directory at `student-infra/students/jlgore/` is a complete working example. Look at it whenever you're unsure about a field or structure.
 
 ---
 
@@ -35,8 +57,6 @@ You did this in Week 1, but now with the v4 tag:
 
 ```bash
 cd week-04/labs/lab-02-deploy-and-scale/starter
-
-# Make sure you've customized app.py with your name/username
 
 # Tag for GHCR
 docker tag student-app:v4 ghcr.io/<YOUR_GITHUB_USERNAME>/container-course-app:v4
@@ -48,7 +68,11 @@ echo $GITHUB_TOKEN | docker login ghcr.io -u <YOUR_GITHUB_USERNAME> --password-s
 docker push ghcr.io/<YOUR_GITHUB_USERNAME>/container-course-app:v4
 ```
 
-> **Note:** We renamed the image from `container-course-student` (Week 1) to `container-course-app`. This is the same app evolving — it'll grow new features each week.
+> **Codespace users:** The default `$GITHUB_TOKEN` in GitHub Codespaces does **not** have permission to create packages in the org. You'll get `permission_denied: installation not allowed to Create organization package`. To fix this, create a **Personal Access Token (classic)** at [Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens) with the `write:packages` scope, then log in with that instead:
+>
+> ```bash
+> echo "ghp_YOUR_TOKEN_HERE" | docker login ghcr.io -u <YOUR_GITHUB_USERNAME> --password-stdin
+> ```
 
 ### Make It Public
 
@@ -60,278 +84,257 @@ Your image must be publicly pullable so the shared cluster can access it without
 
 ---
 
-## Part 2: Create Your Manifests
+## Part 2: Fork and Clone talos-gitops
 
-Clone the gitops repo (or pull latest if you already have it):
+You have triage access to the infrastructure repo. Fork it so you can push a branch:
+
+1. Go to [github.com/ziyotek-edu/talos-gitops](https://github.com/ziyotek-edu/talos-gitops) and click **Fork**
+2. Clone your fork:
 
 ```bash
 cd ~/
-git clone https://github.com/ziyotek-edu/container-gitops.git
-cd container-gitops
+git clone https://github.com/<YOUR_GITHUB_USERNAME>/talos-gitops.git
+cd talos-gitops
 git checkout -b week04/<YOUR_GITHUB_USERNAME>
 ```
 
-### Create Your Directory
+---
 
-Each student gets their own directory under `students/`. This is where all your manifests live for the entire course:
+## Part 3: Create Your Directory and Scaffold Manifests
+
+### Create the directory structure
 
 ```bash
-mkdir -p students/<YOUR_GITHUB_USERNAME>
+mkdir -p student-infra/students/<YOUR_GITHUB_USERNAME>/dev
+mkdir -p student-infra/students/<YOUR_GITHUB_USERNAME>/prod
 ```
 
-### Write deployment.yaml
+### Scaffold with kubectl
 
-Create `students/<YOUR_GITHUB_USERNAME>/deployment.yaml`:
+Use `kubectl create --dry-run=client -o yaml` to generate starting manifests. You'll do this for both dev and prod.
+
+**Dev namespace:**
+
+```bash
+cd student-infra/students/<YOUR_GITHUB_USERNAME>/dev
+
+kubectl create namespace student-<YOUR_GITHUB_USERNAME>-dev \
+  --dry-run=client -o yaml > namespace.yaml
+
+kubectl create deployment student-app \
+  --image=ghcr.io/<YOUR_GITHUB_USERNAME>/container-course-app:v4 \
+  --dry-run=client -o yaml > deployment.yaml
+
+kubectl create service clusterip student-app-svc \
+  --tcp=80:5000 \
+  --dry-run=client -o yaml > service.yaml
+```
+
+**Prod namespace:**
+
+```bash
+cd ../prod
+
+kubectl create namespace student-<YOUR_GITHUB_USERNAME>-prod \
+  --dry-run=client -o yaml > namespace.yaml
+
+kubectl create deployment student-app \
+  --image=ghcr.io/<YOUR_GITHUB_USERNAME>/container-course-app:v4 \
+  --dry-run=client -o yaml > deployment.yaml
+
+kubectl create service clusterip student-app-svc \
+  --tcp=80:5000 \
+  --dry-run=client -o yaml > service.yaml
+```
+
+### Edit the scaffolded files
+
+The `kubectl create` output is minimal. You need to add labels, environment variables, probes, and resource limits. Open the instructor's example at `student-infra/students/jlgore/` and use it as reference.
+
+**For each `namespace.yaml`** (dev and prod), add course labels:
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: student-<YOUR_GITHUB_USERNAME>
   labels:
-    app: student-app
-    student: <YOUR_GITHUB_USERNAME>
-    week: "4"
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: student-app
-      student: <YOUR_GITHUB_USERNAME>
-  template:
-    metadata:
-      labels:
-        app: student-app
-        student: <YOUR_GITHUB_USERNAME>
-    spec:
-      containers:
-      - name: student-app
-        image: ghcr.io/<YOUR_GITHUB_USERNAME>/container-course-app:v4
-        ports:
-        - containerPort: 5000
-          name: http
-        env:
-        - name: STUDENT_NAME
-          value: "YOUR_FULL_NAME"
-        - name: GITHUB_USERNAME
-          value: "<YOUR_GITHUB_USERNAME>"
-        - name: APP_VERSION
-          value: "v4"
-        - name: ENVIRONMENT
-          value: "production"
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "50m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 5000
-          initialDelaySeconds: 10
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 5000
-          initialDelaySeconds: 5
-          periodSeconds: 10
+    app.kubernetes.io/managed-by: gitops
+    course.ziyotek.edu/course: container-fundamentals
+    course.ziyotek.edu/environment: dev    # or "prod"
+    course.ziyotek.edu/student: <YOUR_GITHUB_USERNAME>
 ```
 
-**Replace** all instances of `<YOUR_GITHUB_USERNAME>` and `YOUR_FULL_NAME`.
+**For each `deployment.yaml`** (dev and prod), add to the container spec:
 
-### Write service.yaml
+- Labels: `app: student-app` and `student: <YOUR_GITHUB_USERNAME>` on both the deployment and pod template
+- Environment variables: `STUDENT_NAME`, `GITHUB_USERNAME`, `APP_VERSION`, plus `ENVIRONMENT` using a field reference to `metadata.namespace` (so it auto-detects dev vs prod)
+- Pod metadata injection: `POD_NAME`, `POD_NAMESPACE`, `POD_IP`, `NODE_NAME` via `fieldRef`
+- Resource limits: 64Mi/256Mi memory, 50m/200m CPU
+- Health probes: liveness and readiness on `/health` port 5000
 
-Create `students/<YOUR_GITHUB_USERNAME>/service.yaml`:
+**For each `service.yaml`** (dev and prod), add labels (`app: student-app`, `student: <YOUR_GITHUB_USERNAME>`) and make sure the selector matches `app: student-app`.
 
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: student-<YOUR_GITHUB_USERNAME>-svc
-  labels:
-    app: student-app
-    student: <YOUR_GITHUB_USERNAME>
-spec:
-  selector:
-    app: student-app
-    student: <YOUR_GITHUB_USERNAME>
-  ports:
-  - port: 80
-    targetPort: 5000
-    protocol: TCP
-    name: http
-```
+> **Key detail:** The `ENVIRONMENT` env var uses `fieldRef: metadata.namespace` instead of a hardcoded string. Kustomize sets the namespace, and the pod picks it up automatically. This is why dev and prod manifests can be identical.
 
-### Write kustomization.yaml
+### Write kustomization.yaml files
 
-Create `students/<YOUR_GITHUB_USERNAME>/kustomization.yaml`:
+These are short — write them by hand.
+
+**`student-infra/students/<YOUR_GITHUB_USERNAME>/kustomization.yaml`** (root — points to both envs):
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  - dev
+  - prod
+```
+
+**`student-infra/students/<YOUR_GITHUB_USERNAME>/dev/kustomization.yaml`**:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: student-<YOUR_GITHUB_USERNAME>-dev
+
+resources:
+  - namespace.yaml
   - deployment.yaml
   - service.yaml
 ```
 
-This file tells Kustomize (and ArgoCD) which manifests to apply. As you add more resources in future weeks (ConfigMaps, Secrets, Ingress), you'll add them to this list.
+**`student-infra/students/<YOUR_GITHUB_USERNAME>/prod/kustomization.yaml`**:
 
-### Verify Your Directory
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 
-Your directory should look like this:
+namespace: student-<YOUR_GITHUB_USERNAME>-prod
 
-```
-students/<YOUR_GITHUB_USERNAME>/
-├── deployment.yaml
-├── kustomization.yaml
-└── service.yaml
-```
-
-### Validate Locally
-
-Before pushing, make sure your YAML is valid:
-
-```bash
-# Quick syntax check
-kubectl apply --dry-run=client -f students/<YOUR_GITHUB_USERNAME>/deployment.yaml
-kubectl apply --dry-run=client -f students/<YOUR_GITHUB_USERNAME>/service.yaml
-
-# Kustomize build (shows you what ArgoCD will see)
-kubectl kustomize students/<YOUR_GITHUB_USERNAME>/
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
 ```
 
-If `kubectl kustomize` produces valid YAML output with both your Deployment and Service, you're good.
+The `namespace:` field in each kustomization.yaml is the Kustomize namespace transformer — it automatically sets the namespace on every resource in the directory. That's why your deployment.yaml and service.yaml don't need a `metadata.namespace` field.
 
 ---
 
-## Part 3: Submit Your Pull Request
+## Part 4: Register Your Directory and Validate
+
+### Add yourself to the parent kustomization
+
+Edit `student-infra/students/kustomization.yaml` and add your directory name to the resources list:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - jlgore
+  - <YOUR_GITHUB_USERNAME>    # <-- add this line
+```
+
+### Validate with kustomize
+
+From the repo root, run:
 
 ```bash
-git add students/<YOUR_GITHUB_USERNAME>/
-git commit -m "week04: add manifests for <YOUR_GITHUB_USERNAME>"
+kubectl kustomize student-infra/students/<YOUR_GITHUB_USERNAME>/
+```
+
+This should output valid YAML containing:
+- Two Namespace resources (`student-<YOUR_GITHUB_USERNAME>-dev` and `student-<YOUR_GITHUB_USERNAME>-prod`)
+- Two Deployments (one in each namespace)
+- Two Services (one in each namespace)
+
+If you get errors, compare your files to the `jlgore/` example and fix any differences.
+
+### Verify your directory structure
+
+```
+student-infra/students/<YOUR_GITHUB_USERNAME>/
+├── kustomization.yaml
+├── dev/
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   ├── deployment.yaml
+│   └── service.yaml
+└── prod/
+    ├── kustomization.yaml
+    ├── namespace.yaml
+    ├── deployment.yaml
+    └── service.yaml
+```
+
+---
+
+## Part 5: Submit Your Pull Request
+
+```bash
+cd ~/talos-gitops
+git add student-infra/students/
+git commit -m "week04: add dev/prod manifests for <YOUR_GITHUB_USERNAME>"
 git push origin week04/<YOUR_GITHUB_USERNAME>
 ```
 
-Go to the `container-gitops` repo on GitHub and open a pull request:
+Go to [github.com/ziyotek-edu/talos-gitops](https://github.com/ziyotek-edu/talos-gitops) and open a pull request:
 
 - **Base:** `main`
-- **Compare:** `week04/<YOUR_GITHUB_USERNAME>`
-- **Title:** `Week 04: <YOUR_NAME> - Kubernetes deployment`
+- **Compare:** your fork's `week04/<YOUR_GITHUB_USERNAME>` branch
+- **Title:** `Week 04: <YOUR_NAME> - dev/prod deployment`
 
-The PR validation workflow will run and check that your manifests are syntactically valid. Once a reviewer approves and merges, ArgoCD picks up the change.
+Once a reviewer approves and merges, ArgoCD picks up the change and syncs both namespaces.
 
 ---
 
-## Part 4: Watch the Deployment
+## Part 6: Watch the Deployment
 
-After your PR is merged, ArgoCD will detect the new manifests and sync them to the shared cluster. This usually takes 1-3 minutes.
-
-### Check ArgoCD (If Dashboard Access Is Available)
-
-Your instructor may provide access to the ArgoCD dashboard where you can see your application syncing in real time.
+After your PR is merged, ArgoCD will detect the new manifests and sync them. This usually takes 1-3 minutes.
 
 ### Verify with kubectl
 
 ```bash
-# Switch to the shared cluster context
-kubectl config use-context shared-cluster
+# Check your dev namespace
+kubectl get all -n student-<YOUR_GITHUB_USERNAME>-dev
 
-# Check your namespace for the new pod
-kubectl get pods -n student-<YOUR_GITHUB_USERNAME>
+# Check your prod namespace
+kubectl get all -n student-<YOUR_GITHUB_USERNAME>-prod
 
-# See the full deployment
-kubectl get all -n student-<YOUR_GITHUB_USERNAME>
+# Check the pods are running in both
+kubectl get pods -n student-<YOUR_GITHUB_USERNAME>-dev
+kubectl get pods -n student-<YOUR_GITHUB_USERNAME>-prod
 
-# Check the logs
-kubectl logs deployment/student-<YOUR_GITHUB_USERNAME> -n student-<YOUR_GITHUB_USERNAME>
+# Check logs
+kubectl logs deployment/student-app -n student-<YOUR_GITHUB_USERNAME>-dev
+```
 
-# Test the info endpoint via port-forward
-kubectl port-forward -n student-<YOUR_GITHUB_USERNAME> service/student-<YOUR_GITHUB_USERNAME>-svc 8080:80 &
+### Test with port-forward
+
+```bash
+# Forward dev
+kubectl port-forward -n student-<YOUR_GITHUB_USERNAME>-dev service/student-app-svc 8080:80 &
 curl localhost:8080/info
+kill %1
+
+# Forward prod
+kubectl port-forward -n student-<YOUR_GITHUB_USERNAME>-prod service/student-app-svc 8081:80 &
+curl localhost:8081/info
 kill %1
 ```
 
-### Check the Public URL
-
-If DNS is configured, your app should be accessible at:
-
-```
-https://<YOUR_GITHUB_USERNAME>.students.yourdomain.com
-```
-
-Your instructor will confirm the URL pattern.
+The `/info` endpoint should return pod metadata. Notice that `ENVIRONMENT` shows the namespace name — `student-<YOUR_GITHUB_USERNAME>-dev` or `student-<YOUR_GITHUB_USERNAME>-prod` — because it comes from `metadata.namespace`, not a hardcoded value.
 
 ---
 
-## Part 5: Switch Back to Local
-
-Always switch back to your local cluster when you're done checking the shared one:
-
-```bash
-kubectl config use-context kind-lab
-```
-
----
-
-## The Pattern Going Forward
-
-This is how every subsequent week works:
-
-1. **Get the code drop** — new features added to `app.py` (Redis support, new endpoints, etc.)
-2. **Build and test locally** — `docker build`, load into kind, `kubectl apply`, verify
-3. **Push image to GHCR** — `docker push ghcr.io/<username>/container-course-app:<tag>`
-4. **Update gitops manifests** — modify files in `students/<username>/`, add new resources
-5. **Open PR** — validation runs, reviewer merges
-6. **ArgoCD deploys** — your changes go live on the shared cluster
-
-Each week you'll add files to your `students/<username>/` directory. The `kustomization.yaml` grows with each new resource. By Week 8, your directory will contain Deployments, Services, ConfigMaps, Secrets, Ingress rules, and more — a complete application stack managed entirely through Git.
-
----
-
-## Checkpoint ✅
+## Checkpoint
 
 Before you're done, verify:
 
 - [ ] Your v4 image is on GHCR and publicly accessible
-- [ ] Your `students/<username>/` directory has deployment.yaml, service.yaml, and kustomization.yaml
-- [ ] `kubectl kustomize students/<username>/` produces valid output
-- [ ] Your PR is submitted (or merged)
-- [ ] After merge: your pod is running on the shared cluster
-- [ ] After merge: the `/info` endpoint returns real pod metadata on the shared cluster
-- [ ] You're back on the `kind-lab` context
-
----
-
-## What You Accomplished Today
-
-Think about what happened in 3 hours:
-
-- You built a local Kubernetes cluster from scratch
-- You learned how the control plane components work together
-- You deployed an application, scaled it, updated it with zero downtime, and rolled it back
-- You debugged failing pods using logs, describe, and exec
-- You shipped your app to a production cluster through a Git-driven pipeline
-
-The container you built in Week 1 is now a Kubernetes-managed application with health checks, resource limits, pod metadata injection, and an automated deployment pipeline.
-
-Next week, we wire in Redis.
+- [ ] Your `student-infra/students/<username>/` directory has the full dev+prod structure (10 files)
+- [ ] `kubectl kustomize student-infra/students/<username>/` produces valid output with both namespaces
+- [ ] You added your directory to `student-infra/students/kustomization.yaml`
+- [ ] Your PR is submitted to `ziyotek-edu/talos-gitops` (or merged)
+- [ ] After merge: pods are running in both `student-<username>-dev` and `student-<username>-prod`
+- [ ] After merge: `/info` returns correct `ENVIRONMENT` in each namespace
