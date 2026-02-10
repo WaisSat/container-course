@@ -81,6 +81,52 @@ This copies the image from your local Docker into the kind node. Now Kubernetes 
 
 ## Part 3: Write Your Deployment Manifest
 
+### How to Find This Stuff
+
+Nobody memorizes Kubernetes YAML. Here's how you discover it:
+
+**`kubectl explain`** is a built-in schema browser. It works offline, matches your cluster's actual API version, and is the fastest way to answer "what fields go here?":
+
+```bash
+# What goes in a Deployment?
+kubectl explain deployment
+
+# What goes in deployment.spec?
+kubectl explain deployment.spec
+
+# Keep drilling — what fields does a container have?
+kubectl explain deployment.spec.template.spec.containers
+
+# How do I set environment variables?
+kubectl explain deployment.spec.template.spec.containers.env
+
+# Show me the entire tree at once
+kubectl explain deployment --recursive
+```
+
+**`kubectl create --dry-run`** generates starter YAML so you don't start from a blank file:
+
+```bash
+kubectl create deployment student-app --image=student-app:v4 --dry-run=client -o yaml
+```
+
+This outputs a minimal but valid Deployment manifest. It won't have everything you need (no env vars, no resource limits) but it gives you the skeleton — correct `apiVersion`, `kind`, label wiring, etc. You can redirect it to a file and build from there:
+
+```bash
+kubectl create deployment student-app --image=student-app:v4 --dry-run=client -o yaml > deployment.yaml
+```
+
+**Kubernetes docs** have the full API reference with examples for every resource type:
+
+- [Deployments concept guide](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/) — explains the "why" with examples
+- [Deployment API reference](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/deployment-v1/) — every field, every option
+- [Downward API](https://kubernetes.io/docs/concepts/workloads/pods/downward-api/) — injecting pod metadata as env vars
+- [Resource management](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/) — CPU/memory requests and limits
+
+Between `kubectl explain`, `--dry-run`, and the docs, you can build any manifest from scratch. The YAML below is what you'd arrive at — now you know where it comes from.
+
+### The Manifest
+
 Create a file called `deployment.yaml`. This tells Kubernetes what you want:
 
 ```yaml
@@ -213,6 +259,12 @@ kill %1
 ## Part 4: Create a Service
 
 Port-forwarding is fine for debugging, but it only reaches one pod. A **Service** provides a stable endpoint that load-balances across all pods matching a label selector.
+
+> **Try it yourself first:** Run `kubectl explain service.spec` to see what fields a Service takes, or generate a skeleton with:
+> ```bash
+> kubectl create service clusterip student-app-svc --tcp=80:5000 --dry-run=client -o yaml
+> ```
+> Compare the output to the manifest below — you'll see it's the same structure.
 
 Create `service.yaml`:
 

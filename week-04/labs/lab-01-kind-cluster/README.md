@@ -207,7 +207,36 @@ kubectl config set-context ziyotek-prod \
 kubectl config use-context ziyotek-prod
 ```
 
-The first `kubectl` command will open a browser window for GitHub OIDC login. After authenticating, the token is cached.
+The first `kubectl` command will trigger a GitHub OIDC login. kubelogin starts a local web server on port 8000 and tries to open your browser.
+
+**If you're on your local machine:** A browser window opens automatically. Sign in with GitHub and the token is returned.
+
+**If you're in a Codespace:** There's no browser inside the container, so kubelogin will print a message like:
+
+```
+error: could not open the browser: exec: "xdg-open": executable file not found
+Please visit the following URL in your browser manually: http://localhost:8000/
+```
+
+Here's what to do:
+
+1. Open the **Ports** tab in your Codespace (next to Terminal)
+2. Find port **8000** — right-click it and set **Port Visibility** to **Public**
+3. Run your `kubectl` command (e.g., `kubectl get namespaces`) — it will hang waiting for auth
+4. Copy the `http://localhost:8000` URL from the terminal output and open it in your browser
+5. You'll be redirected to GitHub to sign in
+6. After signing in, the redirect back to `localhost:8000` will **fail** in your browser — this is expected. The Codespace's port 8000 isn't your local machine's port 8000.
+7. **Copy the full URL** from your browser's address bar (it looks like `http://localhost:8000/?code=XXXXX&state=YYYYY`)
+8. Back in your Codespace terminal, run:
+   ```bash
+   curl "http://localhost:8000/?code=XXXXX&state=YYYYY"
+   ```
+   (paste the full URL you copied)
+9. kubelogin receives the auth code, exchanges it for a token, and your `kubectl` command completes
+
+The token is cached after the first login — subsequent `kubectl` commands won't require re-authentication until the token expires.
+
+> **Why does this happen?** The OIDC login flow uses a browser redirect: you authenticate with GitHub, then GitHub sends you back to `http://localhost:8000` with an auth code. On your local machine, localhost:8000 reaches kubelogin directly. In a Codespace, localhost in your browser means *your* machine, not the Codespace — so the redirect fails. The `curl` workaround delivers the auth code to kubelogin inside the Codespace.
 
 ### See Your Apps
 
