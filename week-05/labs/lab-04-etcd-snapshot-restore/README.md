@@ -81,7 +81,9 @@ Write these down. You'll use them in every etcdctl command for the rest of this 
 
 ## Part 2: Take a Snapshot
 
-The etcd container image is distroless — it contains only `etcdctl` and `etcd`, no shell or standard utilities. Save the snapshot directly into `/var/lib/etcd/`, which already exists as a mounted volume:
+The etcd container image is distroless — it contains only `etcdctl`, `etcdutl`, and `etcd`, no shell or standard utilities. Save the snapshot directly into `/var/lib/etcd/`, which already exists as a mounted volume:
+
+> **CKA exam note:** On the exam, etcd runs on a real node (not kind). Save to a path on the hostPath volume (e.g. `/var/lib/etcd/`) or copy off-node with `scp` from the control-plane host.
 
 ```bash
 kubectl -n kube-system exec "$ETCD_POD" -- etcdctl \
@@ -105,7 +107,11 @@ Copy snapshot locally as evidence:
 
 ```bash
 mkdir -p ./artifacts
-kubectl -n kube-system cp "${ETCD_POD}:/var/lib/etcd/snapshot.db" ./artifacts/snapshot.db
+# kubectl cp uses tar internally — not available in distroless etcd images.
+# In kind, /var/lib/etcd is a hostPath mount, so copy from the node container:
+CONTROL_PLANE=$(kubectl get nodes --selector='node-role.kubernetes.io/control-plane' \
+  -o jsonpath='{.items[0].metadata.name}')
+docker cp "${CONTROL_PLANE}:/var/lib/etcd/snapshot.db" ./artifacts/snapshot.db
 ls -lh ./artifacts/snapshot.db
 ```
 
